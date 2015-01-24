@@ -1,0 +1,72 @@
+---
+title: "Coursera Practical Machine Learning Writeup"
+author: "Liu Yue"
+date: "January 24, 2015"
+output: html_document
+---
+
+##Executive Summary
+
+In this project, we will construct a prediction model using the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and apply the prediction on the test data to predict the manner of exercise under 20 different test cases.
+We achieved the goal in following steps:
+
+- data preparation, to tidy up the training data and remove the unnecessary variables
+- training, we use random forest algorithm to train the model
+- model validation
+- predict on test data
+
+##Data Preparation
+
+We load the traing set and test set separately and convert all empty and NA values to 'NA':
+```{r}
+training_orig=read.csv("pml-training.csv", na.strings= c("NA","","#DIV/0!"))
+testing_orig=read.csv("pml-testing.csv", na.strings= c("NA","","#DIV/0!"))
+```
+And then we have to remove all columns having over 95% of NA values as noise, and we also have to remove all non-quantative columns as the target is to predict the manner of exercises according to the quantative measurements.
+```{r}
+training_mod=training_orig[,!colSums(is.na(training_orig))>dim(training_orig)[1]*.95]
+training_mod=training_mod[, !(names(training_mod) %in% c("X","user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window"))]
+```
+
+##Training
+
+We choose random forest algorithm to perform the training as it is robust against overfitting and easy to run in parallel. 
+Firstly we use 75% of the traing data as the actual training set and leave the remaining 25% as the validation set.
+```{r}
+require(caret)
+require(randomForest)
+require(doParallel)
+require(parallel)
+require(foreach)
+set.seed(3234)
+#use 75% of the spam data as training set
+training_mod$classe = as.factor(training_mod$classe)
+inTrain=createDataPartition(training_mod$classe, p=0.75, list=FALSE)
+training=training_mod[inTrain,]
+testing=training_mod[-inTrain,]
+```
+We construct a 100-tree forest and perform 5-fold cross valiation for each tree generation. We use parRF to utilize multi-cores and reduce the time consumption of the training process.
+```{r}
+model <- train(classe~., data=training, method="parRF", trControl=trainControl(method = "cv", number = 5),ntree=100)
+model
+```
+
+## Model Validation
+
+According to the final model, the estimated out of sample errors of the five classes are 0.001672640, 0.010182584, 0.009349435, 0.012437811, and 0.005173688. It seems that the prediction model could lead to a quite accurate prediction.
+```{r}
+model$finalModel
+```
+Then we have to validate it with the validate set by means of confusion matrix.
+```{r}
+predictions <- predict(model,newdata=testing)
+confusionMatrix(predictions, testing$classe)
+```
+The cross-validation accuracy is 0.9947 and the out of sample errors are close to estimation. Now we can continue to predict the testing set with this model.
+
+## Predict on test data
+
+```{r}
+predictions <- predict(model, newdata=testing_orig)
+print(predictions)
+```
